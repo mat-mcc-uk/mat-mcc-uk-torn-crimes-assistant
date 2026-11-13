@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.3.0
+// @version      0.3.1
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -259,7 +259,8 @@
     scamPlan(cells, pos, scam, stacks, maxFail) {
       if (maxFail === undefined) maxFail = RULES.scamming.defaultMaxFail;
       const options = Logic.scamOptions(scam, stacks);
-      const base = options.filter(o => o.accelerate === 0);
+      // Lookahead uses unboosted ranges: the boost is spent by the next response.
+      const base = Logic.scamOptions(scam, 0).filter(o => o.accelerate === 0);
       const memo = {};
       const scored = options.map(o => Object.assign({}, o, Logic.evaluateResponse(cells, pos, o.range),
         { value: Logic.scamOptionValue(cells, pos, o, base, 3, memo) }));
@@ -540,11 +541,23 @@
         const mark = (row.querySelector('[class*="tabletAvatar"] [aria-label], [class*="targetPortrait"] [aria-label]')?.getAttribute('aria-label') || '')
           .replace(/\s+(Male|Female)$/i, '');
         return {
-          cells, pos: isNaN(pos) ? 0 : pos, mark,
+          cells, pos: isNaN(pos) ? 0 : pos, mark, stacks: this.readStacks(row),
           scam: (q(row, 'scamMethod')?.textContent || '').trim(),
           email: (row.querySelector('[class*="email_"]')?.textContent || '').trim(),
           buttons: [...row.querySelectorAll('button[class*="responseTypeButton"]')],
         };
+      },
+
+      // The game speeds up the response animation with a CSS variable, --times-accelerated,
+      // on elements it marks "accelerated". That variable is the banked Accelerate count.
+      readStacks(row) {
+        const candidates = [...row.querySelectorAll('[class*="accelerated"]'),
+          ...row.querySelectorAll('button[class*="responseTypeButton"]'), row];
+        for (const el of candidates) {
+          const n = parseInt(getComputedStyle(el).getPropertyValue('--times-accelerated'), 10);
+          if (n > 0) return Math.min(n, 5);
+        }
+        return 0;
       },
 
       cache: {},
@@ -558,12 +571,13 @@
           if (/^Read/i.test(row.querySelector('[class*="commitButtonSection"] button')?.getAttribute('aria-label') || '') && q(row, 'emailAndMethod')) { unread++; continue; }
           const t = this.readTarget(row);
           if (!t) continue;
-          const sig = t.scam + '|' + t.pos + '|' + t.cells.join(',');
-          const plan = this.cache[sig] || (this.cache[sig] = Logic.scamPlan(t.cells, t.pos, t.scam, 0));
+          const sig = t.scam + '|' + t.pos + '|' + t.stacks + '|' + t.cells.join(',');
+          const plan = this.cache[sig] || (this.cache[sig] = Logic.scamPlan(t.cells, t.pos, t.scam, t.stacks));
           const p = plan.pick;
           const payout = tier => { const v = Logic.scamPayout(t.scam, t.mark, tier); return v === null ? '?' : money(v); };
           let line = '<b>' + t.email + '</b> (' + t.scam + ', ' + (t.mark || 'unknown mark') + '; pays about ' +
             payout('low') + ' / ' + payout('medium') + ' / ' + payout('high') + '). ';
+          if (t.stacks) line += '<b>' + t.stacks + '</b> Accelerate banked. ';
           if (plan.abandon) line += '<b>Consider abandoning:</b> ' + plan.abandon + '. ';
           if (plan.canCapitalise) line += 'On <b>' + plan.canCapitalise + '</b> reward: Capitalise is available now. ';
           const first = p.accelerate ? 'Accelerate ×' + p.accelerate + ', then ' + p.name : p.name;
@@ -665,7 +679,7 @@
     const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
     if (!el || !el.closest('.crimes-app') || el.closest('#cca-bar, .cca-badge')) return false;
     // Class changes matter only on the scam pip and bar zones (the pip moves by class).
-    if (m.type === 'attributes') return el.matches('[class*="pipPosition"], [class*="zone"]');
+    if (m.type === 'attributes') return el.matches('[class*="pipPosition"], [class*="zone"], [class*="linesAnimation"], [class*="rippleContainer"]');
     return true;
   };
   new MutationObserver(muts => {
@@ -676,5 +690,10 @@
   tick();
 
   // Console helper: CCA.reset() turns every module back on.
-  window.CCA = { RULES, Logic, reset() { settings.enabled = {}; saveSettings(); tick(); } };
+  window.CCA = {
+    RULES, Logic,
+    reset() { settings.enabled = {}; saveSettings(); tick(); },
+    // CCA.scam() prints what the advisor reads from each scam target, for checking against the page.
+    scam() { return rows().map(r => MODULES.scamming.readTarget(r)).filter(Boolean).map(t => ({ email: t.email, scam: t.scam, mark: t.mark, pip: t.pos, stacks: t.stacks, bar: t.cells.map(c => c[0]).join('') })); },
+  };
 })();

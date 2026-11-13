@@ -213,4 +213,20 @@ t('live bar: capitalise flag on reward cells', () => {
   assert.strictEqual(Logic.scamPlan(live, 16, 'Family', 0).canCapitalise, 'low');
 });
 
+t('banked Accelerate stacks change the ranges, and lookahead resets them', () => {
+  // With 1 stack banked on a tier-1 scam, Strong forward moves 15 to 29.
+  const p1 = Logic.scamPlan(live, 16, 'Family', 1);
+  const strong = p1.all.find(o => o.name === 'Strong forward' && o.accelerate === 0);
+  assert.deepStrictEqual(strong.range, { min: 15, max: 29 });
+  close(strong.fail, 0);                       // lands on 31 to 45
+  assert.strictEqual(p1.all.length, 15);       // stacks 1 to 5, three responses each
+  // From cell 0 with 1 stack, Strong forward reaches the fail block (25 to 29).
+  const p0 = Logic.scamPlan(live, 0, 'Family', 1);
+  const s0 = p0.all.find(o => o.name === 'Strong forward' && o.accelerate === 0);
+  close(s0.fail, 5 / 15);
+  assert.ok(p0.pick.fail <= 0.05);
+  // At 5 stacks no further Accelerate is offered.
+  assert.ok(Logic.scamPlan(live, 0, 'Family', 5).all.every(o => o.accelerate === 0));
+});
+
 console.log('\n' + n + ' tests passed');
