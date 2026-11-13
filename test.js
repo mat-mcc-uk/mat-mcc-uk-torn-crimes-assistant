@@ -257,4 +257,57 @@ t('arson hover tips stay short enough for the game tooltip', () => {
   console.log('    longest tip:', longest, 'characters');
 });
 
+t('disposal picks the safest method, dearer on ties', () => {
+  const a = j => Logic.disposalAdvice(j);
+  assert.strictEqual(a('General Waste').best.name, 'Bury');
+  assert.strictEqual(a('Broken Appliance').best.name, 'Sink');
+  assert.strictEqual(a('Old Furniture').best.name, 'Burn');
+  assert.strictEqual(a('Documents').best.name, 'Burn');
+  assert.strictEqual(a('Vehicle').best.name, 'Sink');
+  assert.deepStrictEqual(a('Vehicle').needs, ['Bricks']);
+  assert.deepStrictEqual(a('Building Debris').needs, ['Wheelbarrow']);
+  assert.deepStrictEqual(a('General Waste').needs, ['Shovel']);
+  assert.strictEqual(a('Body Part').best.name, 'Dissolve');
+  assert.strictEqual(a('Dead Body').best.name, 'Dissolve');
+  assert.strictEqual(a('Firearm').best.name, 'Sink');
+  assert.deepStrictEqual(a('General Waste').avoid, ['Dissolve']);
+  assert.strictEqual(a('Space Junk'), null);
+  for (const j of Object.keys(RULES.disposal.jobs)) assert.strictEqual(RULES.disposal.jobs[j].length, 5, j);
+});
+
+t('shoplifting reads the live security labels', () => {
+  const s = (store, status, n) => Logic.shopliftAdvice(store, status, n || 'No notoriety');
+  assert.strictEqual(s("Sally's Sweet Shop", 'Status: Camera recording').level, 'ok');
+  assert.strictEqual(s("Big Al's Gun Shop", 'Status: 4 Cameras recording, Both Guards patrolling').level, 'bad');
+  const jewel = s('Jewelry Store', 'Status: 3 Cameras disabled, Guard patrolling');
+  assert.strictEqual(jewel.level, 'ok'); assert.ok(/guard still on/.test(jewel.text));
+  assert.strictEqual(s('Cyber Force', 'Status: Both Cameras recording, Guard on break').level, 'good');
+  assert.strictEqual(s('Pharmacy', 'Status: 3 Cameras disabled, Checkpoint disabled').level, 'good');
+  assert.ok(/All security down/.test(s('Pharmacy', 'Status: 3 Cameras disabled, Checkpoint disabled').text));
+  assert.strictEqual(s("Bits 'n' Bobs", 'Status: Both Cameras disabled').level, 'good');
+  assert.strictEqual(s("Bits 'n' Bobs", 'Status: Both Cameras disabled', 'Very high notoriety').level, 'bad');
+});
+
+t('forgery route and risky steps', () => {
+  assert.strictEqual(Logic.forgeryRoute(4).fast, "Driver's License");
+  assert.strictEqual(Logic.forgeryRoute(55).fast, 'Travel Visa');
+  assert.strictEqual(Logic.forgeryRoute(65).cheap, 'Birth Certificate');
+  assert.strictEqual(Logic.forgeryRoute(95).fast, 'Passport');
+  assert.strictEqual(Logic.forgeryStep('Passport', 7).risky, true);
+  assert.strictEqual(Logic.forgeryStep('Passport', 12).last, true);
+  assert.strictEqual(Logic.forgeryStep('Drivers License', 2).risky, false);
+  assert.strictEqual(Logic.forgeryStep('Collection Bucket', 5), null);
+});
+
+t('bootlegging plan', () => {
+  const sold = { Action: 11084, Comedy: 6695, Drama: 6680, Fantasy: 8716, Horror: 2300, Romance: 2346, Thriller: 4416, 'Sci-Fi': 2297 };
+  const empty = Logic.bootlegPlan(sold, {});
+  assert.strictEqual(empty.short.length, 7);
+  assert.strictEqual(empty.short[0].genre, 'Sci-Fi'); assert.strictEqual(empty.short[0].left, 7703);
+  assert.strictEqual(empty.copyNext, 'Sci-Fi');
+  const stocked = Logic.bootlegPlan(sold, { Action: 10, Comedy: 70, Drama: 55, Fantasy: 70, Horror: 30, Romance: 30, Thriller: 40, 'Sci-Fi': 20 });
+  assert.strictEqual(stocked.copyNext, 'Action');
+  assert.strictEqual(Logic.bootlegPlan(Object.fromEntries(RULES.bootlegging.genres.map(g => [g, 10000])), {}).honourDone, true);
+});
+
 console.log('\n' + n + ' tests passed');

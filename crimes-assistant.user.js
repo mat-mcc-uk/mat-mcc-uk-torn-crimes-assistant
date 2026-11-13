@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.3.3
+// @version      0.4.0
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -95,6 +95,73 @@
         'Docklands': 'Dockside Warehouse', 'Farm Storage': 'Farm Storage Unit',
       },
       burgleAtConfidence: 50,
+    },
+
+    disposal: {
+      // Safety of each method per job, from the Disposal guide. s = safe (95%+), m = fairly safe (90-95%),
+      // u = unsafe (80-90%), r = risky (60-80%), d = dangerous (under 60%), x = not possible, ? = no data.
+      // Order: Abandon, Bury, Burn, Sink, Dissolve.
+      methods: ['Abandon', 'Bury', 'Burn', 'Sink', 'Dissolve'],
+      nerve: [6, 8, 10, 12, 14],
+      jobs: {
+        'General Waste': 'usmrd', 'Broken Appliance': 'urxsd', 'Old Furniture': 'ursud', 'Building Debris': 'urxsx',
+        'Vehicle': 'uxmsx', 'Documents': 'rusdd', 'Industrial Waste': 'duxsx', 'Biological Waste': 'dursx',
+        'Murder Weapon': '??xsd', 'Firearm': '?uxmd', 'Body Part': '???ms', 'Dead Body': '????s',
+      },
+      // What each method consumes or requires. Job-specific extras are listed under the job name.
+      needs: { Bury: 'Shovel', Burn: 'Gas Can', Dissolve: 'Hydrochloric Acid' },
+      jobNeeds: {
+        'Vehicle': { Sink: 'Bricks', Abandon: 'Bleach and Paper Towels' },
+        'Murder Weapon': { Abandon: 'Bleach and Paper Towels' },
+        'Building Debris': { '*': 'Wheelbarrow' }, 'Industrial Waste': { '*': 'Wheelbarrow' },
+        'Biological Waste': { '*': 'Disposable Mask' },
+        'Firearm': { '*': 'Double Cut File', Abandon: 'Handkerchief' },
+        'Body Part': { Bury: 'Shovel and Lye' },
+        'Dead Body': { Sink: 'Anchor and Rope', Bury: 'Shovel and Lye', Dissolve: 'Bonesaw and 5 Hydrochloric Acid' },
+      },
+    },
+
+    shoplifting: {
+      // tier: 1 = fine with security on, 2 = better with security down, 3 = avoid while guards patrol
+      stores: {
+        "Sally's Sweet Shop": { tier: 1, note: 'safest store for skill' },
+        "Bits 'n' Bobs": { tier: 1, note: 'good for skill' },
+        'TC Clothing': { tier: 2, note: 'low value loot' },
+        'Super Store': { tier: 2, note: 'low value loot' },
+        'Pharmacy': { tier: 2, note: 'worth it only with security down' },
+        'Cyber Force': { tier: 2, note: 'computer parts drop more with security down' },
+        'Jewelry Store': { tier: 3, note: 'only with both measures down' },
+        "Big Al's Gun Shop": { tier: 3, note: 'special ammo needs security down' },
+      },
+    },
+
+    forgery: {
+      // [unlock skill, steps, guide safety, risky step numbers]
+      projects: {
+        "Driver's License": [1, 4, 'safe', []], 'Parking Permit': [1, 4, 'safe', []], 'Concert Ticket': [1, 4, 'fairly safe', [3]],
+        'License Plate': [25, 6, 'risky', [4]], 'Birth Certificate': [25, 5, 'unsafe', [4]], 'Diploma': [25, 4, 'fairly safe', [3, 4]],
+        'Skeleton Key': [50, 4, 'risky', [3]], 'Prescription': [50, 4, 'safe', []], 'Travel Visa': [50, 5, 'unsafe', [3]],
+        'ID Badge': [50, 5, 'unsafe', [3, 4, 5]], 'Bank Check': [75, 6, 'unsafe', [3, 4, 5]], 'Police Badge': [75, 7, 'risky', [4, 6]],
+        'ATM Key': [75, 6, 'risky', [3, 5]], 'Passport': [75, 12, 'unsafe', [3, 4, 7, 8, 12]],
+      },
+    },
+
+    bootlegging: {
+      genres: ['Action', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Romance', 'Thriller', 'Sci-Fi'],
+      // How fast each genre sells relative to the others.
+      demand: { 'Action': 10, 'Fantasy': 7, 'Comedy': 7, 'Drama': 5.5, 'Thriller': 4, 'Horror': 3, 'Romance': 3, 'Sci-Fi': 2 },
+      cinephile: 10000,   // sales of each genre for the Cinephile honour
+    },
+
+    graffiti: {
+      // Best spray colour per district, from the Graffiti guide. The guide rates this data as low confidence.
+      districts: {
+        'East Side': { cash: 'purple', rep: 'red' }, 'West Side': { cash: 'green', rep: 'blue' },
+        'North Side': { cash: 'green', rep: 'orange' }, 'Residential District': { cash: 'white', rep: 'blue' },
+        'Red-Light District': { cash: 'green', rep: 'pink' }, 'Financial District': { cash: 'black', rep: 'red' },
+        'City Center': { cash: 'green', rep: 'blue' },
+      },
+      maxTags: 500,   // tags for 5-star reputation
     },
 
     arson: {
@@ -302,6 +369,76 @@
       return Math.round(base * m * c.cash);
     },
 
+    /* ---------- Disposal ---------- */
+
+    disposalAdvice(job) {
+      const D = RULES.disposal;
+      const code = D.jobs[job];
+      if (!code) return null;
+      const rank = { s: 5, m: 4, u: 3, r: 2, d: 1, '?': 0, x: -1 };
+      const word = { s: 'safe', m: 'fairly safe', u: 'unsafe', r: 'risky', d: 'dangerous', '?': 'untested', x: 'not possible' };
+      const methods = D.methods.map((name, i) => ({ name, index: i, code: code[i], rank: rank[code[i]], safety: word[code[i]], nerve: D.nerve[i] }));
+      // Safest wins. Among equally safe methods the dearer one wins, because jobs are capped daily and nerve is not.
+      const best = methods.slice().sort((a, b) => (b.rank - a.rank) || (b.nerve - a.nerve))[0];
+      const extra = D.jobNeeds[job] || {};
+      const needs = [extra[best.name] || D.needs[best.name], extra['*']].filter(Boolean)
+        .filter((v, i, a) => a.indexOf(v) === i);
+      return { best, methods, needs, avoid: methods.filter(m => m.code === 'd').map(m => m.name) };
+    },
+
+    /* ---------- Shoplifting ---------- */
+
+    // status = the row's security label, e.g. "Status: 3 Cameras disabled, Guard patrolling"
+    shopliftAdvice(store, status, notoriety) {
+      const info = RULES.shoplifting.stores[store] || { tier: 2, note: '' };
+      const parts = (status || '').replace(/^Status:\s*/i, '').split(/,\s*/).filter(Boolean);
+      const active = p => /recording|patrolling|enabled|\bon\b|active/i.test(p) && !/disabled|break|away|offline|off\b/i.test(p);
+      const on = parts.filter(active), off = parts.filter(p => !active(p));
+      const guardsOn = on.some(p => /guard/i.test(p)), guardsOff = off.some(p => /guard/i.test(p));
+      const hot = /very high|high/i.test(notoriety || ''), warm = /moderate|medium/i.test(notoriety || '');
+      let level, text;
+      if (hot) { level = 'bad'; text = 'Notoriety high: let it cool, 1% per 5 minutes'; }
+      else if (parts.length && !on.length) { level = 'good'; text = 'All security down: go now'; }
+      else if (guardsOff) { level = 'good'; text = 'Guard away: go now, the window is 10 to 15 minutes'; }
+      else if (off.length) { level = guardsOn ? 'ok' : 'good'; text = off.join(', ').replace(/\d+\s*/, '') + ': less notoriety per theft' + (guardsOn ? ', guard still on' : ''); }
+      else if (info.tier === 1) { level = 'ok'; text = 'Security on, but ' + info.note; }
+      else if (info.tier === 3 || guardsOn) { level = 'bad'; text = 'Wait: ' + info.note; }
+      else { level = 'ok'; text = 'Security on: ' + info.note; }
+      if (warm && level !== 'bad') text += ' \u00b7 notoriety building';
+      return { level, text, on: on.length, off: off.length };
+    },
+
+    /* ---------- Forgery ---------- */
+
+    forgeryRoute(skill) {
+      const fast = skill < 50 ? "Driver's License" : skill < 90 ? 'Travel Visa' : 'Passport';
+      const cheap = skill < 60 ? "Driver's License" : skill < 80 ? 'Birth Certificate' : 'License Plate';
+      const next = skill < 50 ? 'Travel Visas open at 50.' : skill < 90 ? 'Passports become worthwhile near 90.' : '';
+      return { fast, cheap, next };
+    },
+
+    forgeryStep(project, step) {
+      const key = Object.keys(RULES.forgery.projects).find(k => k.toLowerCase().replace(/[^a-z]/g, '') === (project || '').toLowerCase().replace(/[^a-z]/g, ''));
+      if (!key) return null;
+      const [, steps, safety, risky] = RULES.forgery.projects[key];
+      return { project: key, steps, safety, risky: risky.includes(step), last: step === steps };
+    },
+
+    /* ---------- Bootlegging ---------- */
+
+    // sold and stock are {genre: number}
+    bootlegPlan(sold, stock) {
+      const B = RULES.bootlegging;
+      const short = B.genres.map(g => ({ genre: g, left: Math.max(0, B.cinephile - (sold[g] || 0)) })).filter(x => x.left > 0)
+        .sort((a, b) => b.left - a.left);
+      // Days of stock = stock divided by demand. Copy the genre that runs out first.
+      const cover = B.genres.map(g => ({ genre: g, cover: (stock[g] || 0) / B.demand[g] })).sort((a, b) => a.cover - b.cover);
+      const allEmpty = B.genres.every(g => !(stock[g] > 0));
+      // With nothing in stock, favour genres still short for the honour, then the best sellers.
+      const copyNext = allEmpty && short.length ? short[0].genre : cover[0].genre;
+      return { short, copyNext, allEmpty, honourDone: short.length === 0 };
+    },
+
     /* ---------- Arson ---------- */
 
     // reqs = the aria-labels of a job's request icons, e.g. ["Vendetta", "Total destruction required"]
@@ -463,6 +600,20 @@
   const q = (root, part) => root.querySelector('[class*="' + part + '"]');
   const rows = () => [...document.querySelectorAll('.crime-root [class*="crimeOptionWrapper"]')];
   const money = n => '$' + Math.round(n).toLocaleString('en-GB');
+  const num = n => Math.round(n).toLocaleString('en-GB');
+  // A row's own title, ignoring anything other scripts (or this one) have added inside the title element.
+  const ownText = el => el ? [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim() : '';
+  // Crime skill for the open crime, from the level bar's label ("Crime skill: 84 (64%)").
+  const crimeSkill = () => {
+    const label = document.querySelector('[class*="currentCrime"] [class*="progressFill"][aria-label]')?.getAttribute('aria-label') || '';
+    const m = /Crime skill:\s*(\d+)/i.exec(label);
+    return m ? +m[1] : null;
+  };
+  // Outline a set of elements, touching classes only where they need to change.
+  const setPicks = picks => {
+    document.querySelectorAll('.cca-pick').forEach(b => { if (!picks.has(b)) b.classList.remove('cca-pick'); });
+    picks.forEach(b => { if (!b.classList.contains('cca-pick')) b.classList.add('cca-pick'); });
+  };
 
   function setBar(moduleId, html) {
     let bar = document.getElementById('cca-bar');
@@ -633,12 +784,121 @@
           const target = t.buttons[p.accelerate ? 3 : p.button];
           if (target) picks.add(target);
         }
-        // Touch classes only when they need to change, so the observer does not loop.
-        document.querySelectorAll('.cca-pick').forEach(b => { if (!picks.has(b)) b.classList.remove('cca-pick'); });
-        picks.forEach(b => { if (!b.classList.contains('cca-pick')) b.classList.add('cca-pick'); });
+        setPicks(picks);
         if (unread) lines.push(unread + ' unread repl' + (unread > 1 ? 'ies' : 'y') + ': Read costs no nerve and reveals the bar.');
         setBar('scamming', lines.length ? lines.join('<br>')
           : 'No scam targets yet. Replies depend on your address pool: the guide suggests 10,000 or more.');
+      },
+    },
+
+    disposal: {
+      render() {
+        const picks = new Set();
+        let jobs = 0, unknown = 0;
+        const needs = {};
+        for (const row of rows()) {
+          const buttons = [...row.querySelectorAll('button[class*="methodButton"][aria-label]')];
+          if (!buttons.length) continue;
+          jobs++;
+          const titleEl = q(row, 'flexGrow');
+          const advice = Logic.disposalAdvice(ownText(titleEl) || (titleEl?.textContent || '').trim());
+          if (!advice) { unknown++; continue; }
+          const b = advice.best;
+          const level = b.rank >= 4 ? 'good' : b.rank >= 3 ? 'ok' : 'bad';
+          advice.needs.forEach(n => { needs[n] = (needs[n] || 0) + 1; });
+          setBadge(row, titleEl, level, 'Best: ' + b.name + ' (' + b.safety + ')' + (advice.needs.length ? ' \u00b7 needs ' + advice.needs.join(', ') : ''),
+            advice.methods.map(m => m.name + ': ' + m.safety).join('. ') + '.');
+          const target = buttons.find(x => x.getAttribute('aria-label') === b.name);
+          if (target) picks.add(target);
+        }
+        setPicks(picks);
+        if (!jobs) { setBar('disposal', 'No disposal jobs left today. New jobs arrive at midnight Torn time.'); return; }
+        const list = Object.keys(needs).map(n => n + ' (' + needs[n] + ' job' + (needs[n] > 1 ? 's' : '') + ')');
+        setBar('disposal', '<b>' + jobs + '</b> jobs today. The outlined method is the safest for each job; where two are equally safe, the dearer one, since jobs are capped daily and it gives more skill. ' +
+          (list.length ? 'Across today\u2019s jobs you need: <b>' + list.join(', ') + '</b>. ' : '') +
+          (unknown ? unknown + ' job type' + (unknown > 1 ? 's are' : ' is') + ' not in the guide.' : ''));
+      },
+    },
+
+    shoplifting: {
+      render() {
+        let best = null;
+        for (const row of rows()) {
+          const sec = q(row, 'securityMeasuresSection');
+          if (!sec) continue;
+          const titleEl = q(row, 'flexGrow');
+          const store = ownText(titleEl);
+          const notoriety = row.querySelector('[class*="notorietyBar"][aria-label]')?.getAttribute('aria-label') || '';
+          const advice = Logic.shopliftAdvice(store, sec.getAttribute('aria-label'), notoriety);
+          setBadge(row, titleEl, advice.level, advice.text, 'Security: ' + (sec.getAttribute('aria-label') || '').replace(/^Status:\s*/i, '') + '. Notoriety: ' + notoriety + '.');
+          if (advice.level === 'good' && (!best || advice.off > best.off)) best = { store, off: advice.off, text: advice.text };
+        }
+        setBar('shoplifting', (best ? 'Best right now: <b>' + best.store + '</b> (' + best.text + '). ' : 'No store has security down right now. ') +
+          'Cameras drop for 30 to 60 minutes a few times a day, guards take 10 to 15 minute breaks, checkpoints break every 3 to 4 days. ' +
+          'Keep notoriety under 60%, or jail time after a critical failure grows sharply.');
+      },
+    },
+
+    forgery: {
+      render() {
+        const skill = crimeSkill();
+        for (const row of rows()) {
+          const m = /Step #(\d+)/.exec(row.textContent);
+          if (!m) continue;
+          const titleEl = q(row, 'flexGrow');
+          const info = Logic.forgeryStep(ownText(titleEl), +m[1]);
+          if (!info) { setBadge(row, titleEl, 'ok', 'Not in the guide: no step data'); continue; }
+          setBadge(row, titleEl, info.risky ? 'bad' : 'good',
+            (info.risky ? 'Step ' + m[1] + ' fails often' : 'Step ' + m[1] + ' is safe') + (info.last ? ' \u00b7 final step' : ' \u00b7 ' + m[1] + ' of ' + info.steps),
+            'The guide rates ' + info.project + ' as ' + info.safety + ' overall. A critical failure on the final step costs the most skill.');
+        }
+        if (skill === null) { setBar('forgery', 'Could not read your Forgery skill.'); return; }
+        const r = Logic.forgeryRoute(skill);
+        setBar('forgery', 'Forgery skill <b>' + skill + '</b>. For skill, the guide\u2019s fastest project now is <b>' + r.fast + '</b>' +
+          (r.cheap !== r.fast ? ', or <b>' + r.cheap + '</b> to save on materials' : '') + '. ' + r.next +
+          ' Badges on projects in progress flag the steps that fail often.');
+      },
+    },
+
+    bootlegging: {
+      render() {
+        const sold = {}, stock = {};
+        for (const el of document.querySelectorAll('.crime-root [aria-label]')) {
+          const label = el.getAttribute('aria-label');
+          let m = /^(.+?) DVDs sold:\s*([\d,]+)/.exec(label);
+          if (m) { sold[m[1]] = +m[2].replace(/,/g, ''); continue; }
+          m = /^(.+?) - ([\d,]+) in stock/.exec(label);
+          if (m) stock[m[1]] = +m[2].replace(/,/g, '');
+        }
+        if (!Object.keys(sold).length && !Object.keys(stock).length) { setBar('bootlegging', 'Could not read your DVD counts.'); return; }
+        const plan = Logic.bootlegPlan(sold, stock);
+        const parts = ['Copy next: <b>' + plan.copyNext + '</b>' + (plan.allEmpty ? ' (nothing in stock)' : ' (it runs out first at normal sales rates)') + '.',
+          'Sales run roughly Action 10, Fantasy 7, Comedy 7, Drama 5.5, Thriller 4, Horror 3, Romance 3, Sci-Fi 2, and a mixed stock sells more per attempt.'];
+        if (Object.keys(sold).length) {
+          parts.push(plan.honourDone ? 'Cinephile honour: every genre has passed 10,000 sales.'
+            : 'Cinephile honour (10,000 of each genre), still to sell: ' + plan.short.map(x => '<b>' + x.genre + '</b> ' + num(x.left)).join(', ') + '.');
+        }
+        setBar('bootlegging', parts.join(' '));
+      },
+    },
+
+    graffiti: {
+      render() {
+        const G = RULES.graffiti;
+        let short = 0;
+        for (const row of rows()) {
+          const titleEl = q(row, 'flexGrow');
+          const d = G.districts[ownText(titleEl)];
+          if (!d) continue;
+          const tags = parseInt((q(row, 'tagsCount')?.textContent || '').replace(/,/g, ''), 10);
+          const left = isNaN(tags) ? 0 : Math.max(0, G.maxTags - tags);
+          if (left) short++;
+          setBadge(row, titleEl, left ? 'ok' : 'good', 'Cash: ' + d.cash + ' \u00b7 reputation: ' + d.rep + (left ? ' \u00b7 ' + left + ' tags to 5 stars' : ''),
+            'Colour advice comes from small samples in the guide. The paint mask matters more for cash than the colour.');
+        }
+        setBar('graffiti', 'Badges name the spray colour the guide found best for cash and for reputation in each district. ' +
+          (short ? '<b>' + short + '</b> district' + (short > 1 ? 's are' : ' is') + ' below 500 tags. ' : 'Every district is at 500 tags. ') +
+          'The city cleans tags over time, fastest in the districts lower down the list.');
       },
     },
 
