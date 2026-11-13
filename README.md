@@ -18,6 +18,11 @@ Both will pick up new versions from the same link.
 | Arson | Flammability, rurality, burn time against responder time, and a starter count on every job |
 | Burglary | "Case first", "Case once more" or "Burgle now" per target, from its confidence and status |
 | Card Skimming | Recover advice per skimmer, sale value, distance to the next price tier, honour progress |
+| Disposal | Outlines the safest method for each job and lists the items today's jobs need |
+| Shoplifting | Says which stores have security down right now, and warns on notoriety |
+| Forgery | Names the best project for your skill and flags steps that fail often |
+| Bootlegging | Which genre to copy next, and progress toward the Cinephile honour |
+| Graffiti | Best spray colour per district for cash and for reputation |
 
 Each crime has a "hide" switch in its hint bar. Run `CCA.reset()` in the console to bring every module back.
 
