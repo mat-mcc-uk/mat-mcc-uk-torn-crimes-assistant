@@ -229,4 +229,20 @@ t('banked Accelerate stacks change the ranges, and lookahead resets them', () =>
   assert.ok(Logic.scamPlan(live, 0, 'Family', 5).all.every(o => o.accelerate === 0));
 });
 
+t('arson badges read in plain words', () => {
+  const j = n => Logic.arsonJob(...n);
+  assert.ok(/^Easy/.test(j(['Tool Shed', 1, ['Cover-up']]).label));
+  assert.ok(/^Partial .* 36%/.test(j(['Travel Agent', 2, ['Vendetta']]).label));
+  assert.ok(/^Hard .*Thermite/.test(j(['Bank', 3, ['Business', 'Total destruction required']]).label));
+  assert.ok(/look accidental/.test(j(['Arms Warehouse', 4, ['Business', 'Accidental cause requested']]).label));
+  assert.ok(/plant evidence/.test(j(['Motorcycle Club', 3, ['Vendetta', 'Planted evidence requested']]).label));
+  assert.ok(/^No data/.test(j(['Barn', 3, []]).label));
+  // No jargon codes in what the player reads.
+  for (const job of [j(['Tool Shed', 1, []]), j(['Bank', 3, ['X', 'Total destruction required']])]) {
+    assert.ok(!/\bF\d|\bR\d/.test(job.label + job.detail.join(' ')));
+    assert.ok(job.detail.length >= 3);
+    assert.ok(job.detail.some(d => /^To start: Place/.test(d)));
+  }
+});
+
 console.log('\n' + n + ' tests passed');

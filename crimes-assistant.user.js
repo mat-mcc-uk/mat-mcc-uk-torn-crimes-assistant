@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.3.1
+// @version      0.3.2
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -324,37 +324,73 @@
       const A = RULES.arson;
       const code = A.locations[name];
       const req = Logic.arsonRequirements(reqs || []);
-      const starters = Math.min((areas || 1) + 1, A.maxLiquidStarters);
-      const notes = [];
-      if (req.lowSuspicion) notes.push('low suspicion: Oxygen, Potassium Nitrate or Kerosene, Methane last');
-      if (req.highSuspicion) notes.push('high suspicion: Gasoline and Magnesium');
-      if (req.visibility) notes.push('visibility: 4 uses of Diesel, Magnesium or Flamethrower');
-      if (req.evidence) notes.push('bring the evidence item');
-      if (req.accelerant) notes.push(req.accelerant.toLowerCase() + ' accelerants only');
-      if (req.max !== null) notes.push('stop at ' + req.max + '%: start small, keep a dampener ready');
+      areas = areas || 1;
+      const starters = Math.min(areas + 1, A.maxLiquidStarters);
+      const secs = n => n >= 120 ? 'about ' + Math.round(n / 60) + ' minutes' : 'about ' + n + ' seconds';
+      const detail = [];   // full sentences, shown when the player clicks the badge
+      const tags = [];     // short extras appended to the badge
+
+      const fuels = /accidental|insurance/i.test((reqs || []).join(' '))
+        ? ' (Kerosene if you have it. Avoid Gasoline here, because it raises suspicion)'
+        : ' (Gasoline, or Diesel or Kerosene once you have them)';
+      const startLine = 'To start: Place ' + starters + ' liquid fuel' + (starters > 1 ? 's' : '') + fuels + ', then Ignite. ' +
+        (areas > 1 ? 'This building has ' + areas + ' areas, and liquids spread across them. ' : '') +
+        'More than ' + A.maxLiquidStarters + ' fuels at once raises the risk of a critical failure.';
+
+      if (req.lowSuspicion) { tags.push('look accidental'); detail.push('The client wants it to look like an accident. Gasoline raises suspicion, so use Oxygen, Potassium Nitrate or Kerosene, and add Methane last because it removes suspicion.'); }
+      if (req.highSuspicion) { tags.push('look deliberate'); detail.push('The client wants it to look deliberate. Use Gasoline and Magnesium.'); }
+      if (req.visibility) { tags.push('be seen'); detail.push('The fire must be highly visible. Use Diesel, Magnesium or the Flamethrower at least four times in total.'); }
+      if (req.evidence) { tags.push('plant evidence'); detail.push('You must plant evidence before lighting it. The job names the item when you inquire, and you need one in your inventory.'); }
+      if (req.accelerant) { tags.push(req.accelerant.toLowerCase() + ' fuel only'); detail.push('Only ' + req.accelerant.toLowerCase() + ' accelerants are allowed. Any other type fails the job.'); }
+
+      const need = req.total ? 100 : req.min;
+      const hasNeed = need !== null && need !== undefined;
+      const payLine = req.max !== null ? 'Pay scales with damage up to the ' + req.max + '% limit.'
+        : hasNeed ? 'It pays in full once damage passes ' + (req.total ? '100%' : need + '%') + ', and nothing below that.'
+        : 'No damage target: pay scales with damage, so more destruction means more money.';
 
       if (!code || code[0] === '0' || code[1] === '0') {
-        return { known: false, level: 'ok', text: 'No data for this location \u00b7 ' + starters + ' liquid starters', notes, req, starters };
+        detail.unshift('No burn data exists for this location yet, so the script cannot judge its difficulty.');
+        detail.push(startLine, payLine);
+        return { known: false, level: 'ok', label: 'No data · try ' + starters + ' fuel' + (tags.length ? ' · ' + tags.join(', ') : ''),
+                 detail, req, starters, text: 'No data' };
       }
+
       const r = +code[0], f = +code[1];
       const response = A.responseTime[r - 1], rate = A.burnRate[f - 1];
       const burn = Math.round(100 / rate);
-      // Ceiling without Thermite or Magnesium, assuming responders set off at ignition (conservative).
+      // Damage reachable before the fire crew arrives, without Thermite or Magnesium.
+      // Assumes the crew sets off the moment you ignite, so the real figure is a little higher.
       const cap = Math.min(100, Math.round(response * rate));
-      const need = req.total ? 100 : req.min;
-      let level = 'good', verdict;
-      if (need !== null && need !== undefined && need !== false) {
-        if (cap < need) { level = 'bad'; verdict = 'needs ' + need + '%, about ' + cap + '% in time: Thermite or Magnesium'; }
-        else if (response - (need / rate) < 30) { level = 'ok'; verdict = 'needs ' + need + '%, tight: ' + Math.round(need / rate) + 's burn, ' + response + 's response'; }
-        else verdict = 'needs ' + need + '%, comfortable: ' + Math.round(need / rate) + 's burn, ' + response + 's response';
-      } else if (req.max !== null) {
-        level = 'ok'; verdict = 'cap ' + req.max + '%: burns ' + rate + '%/s';
+      const speed = ['very slowly', 'slowly', 'at a moderate pace', 'quickly', 'very quickly'][f - 1];
+      const where = ['in a busy area', 'in a built-up area', 'in a quiet area', 'in a remote area', 'far from anyone'][r - 1];
+      detail.unshift('This building burns ' + speed + ' and sits ' + where + '. Left alone with enough fuel it burns down in ' +
+        secs(burn) + '. The fire crew takes ' + secs(response) + ' to arrive, and they stop the fire.');
+
+      let level = 'good', label;
+      if (req.max !== null) {
+        level = 'ok'; label = 'Careful · stay under ' + req.max + '% damage';
+        detail.push('Damage must not pass ' + req.max + '%. Start with one fuel, watch the damage meter, and keep a Blanket ready to Dampen. It gains about ' + rate + '% per second at full burn.');
+      } else if (hasNeed && cap < need) {
+        level = 'bad'; label = 'Hard · needs ' + need + '%, bring Thermite or Magnesium';
+        detail.push('It needs ' + need + '% damage, but the crew arrives when it is only about ' + cap + '% burned. Thermite makes it burn faster. Magnesium keeps it burning after the crew arrives. Without one of them this job will most likely fail.');
+      } else if (hasNeed && response - need / rate < 30) {
+        level = 'ok'; label = 'Tight · needs ' + need + '%, no time to spare';
+        detail.push('It needs ' + need + '% damage. That takes ' + secs(Math.round(need / rate)) + ' against a crew arrival of ' + secs(response) + ', so place all your fuel before igniting and do not wait.');
+      } else if (hasNeed) {
+        label = 'Easy · needs ' + need + '%, plenty of time';
+        detail.push('It needs ' + need + '% damage. That takes ' + secs(Math.round(need / rate)) + ' and the crew needs ' + secs(response) + ', so you have time to add fuel if it stalls.');
+      } else if (cap >= 100) {
+        label = 'Easy · ' + starters + ' fuel, let it burn';
+        detail.push('It can burn down completely before the crew arrives.');
       } else {
-        verdict = cap >= 100 ? 'full burn in ' + burn + 's, ' + response + 's response' : 'about ' + cap + '% before responders (' + response + 's)';
-        if (cap < 60) level = 'ok';
+        level = cap < 60 ? 'ok' : 'good';
+        label = 'Partial · crew arrives at about ' + cap + '% damage';
+        detail.push('The crew arrives before it burns down, at about ' + cap + '% damage. That is fine here because the job has no damage target. Thermite or Magnesium would push it higher.');
       }
-      return { known: true, level, text: 'F' + f + ' R' + r + ' \u00b7 ' + verdict + ' \u00b7 ' + starters + ' liquid starters',
-               notes, req, starters, rurality: r, flammability: f, response, burn, cap };
+      if (tags.length) label += ' · ' + tags.join(', ');
+      detail.push(startLine, payLine);
+      return { known: true, level, label, detail, req, starters, rurality: r, flammability: f, response, burn, cap, text: label };
     },
 
     /* ---------- Burglary ---------- */
@@ -409,7 +445,8 @@
     .cca-wrap { flex-wrap: wrap !important; align-content: center !important; }
     .cca-badge { flex-basis: 100%; width: fit-content; max-width: 100%; margin: 2px 0 0 0; padding: 1px 6px;
                  border-radius: 3px; font-size: 10px; font-weight: normal; white-space: nowrap;
-                 overflow: hidden; text-overflow: ellipsis; }
+                 overflow: hidden; text-overflow: ellipsis; position: relative; z-index: 3; pointer-events: auto; }
+    .cca-badge[data-key] { cursor: pointer; text-decoration: underline dotted; }
     .cca-pick { outline: 2px solid #7f7 !important; outline-offset: 2px; border-radius: 50%; }
     .cca-good { background: #24572a; color: #cfc; }
     .cca-ok   { background: #5a5320; color: #ffc; }
@@ -602,30 +639,42 @@
     },
 
     arson: {
+      selected: null,   // "Location|Scenario" of the job whose detail is pinned in the bar
+
       render() {
-        let jobs = 0, hard = 0, unknown = 0, unpreserved = 0;
+        let jobs = 0, hard = 0, unpreserved = 0, pinned = null;
         for (const row of rows()) {
           const head = q(row, 'titleAndScenario');
           if (!head) continue;
           jobs++;
-          const scenario = q(head, 'scenario');
-          const name = [...head.childNodes].filter(n => n !== scenario).map(n => n.textContent).join('').trim();
+          const scenarioEl = q(head, 'scenario');
+          const name = [...head.childNodes].filter(n => n !== scenarioEl && !(n.classList && n.classList.contains('cca-badge')))
+            .map(n => n.textContent).join('').trim();
+          const scenario = (scenarioEl?.textContent || '').trim();
           const areas = parseInt(row.querySelector('[class*="fireMeter"]')?.getAttribute('aria-label') || '1', 10) || 1;
           const reqs = [...row.querySelectorAll('[class*="requestIcon"][aria-label]')].map(e => e.getAttribute('aria-label'));
           const job = Logic.arsonJob(name, areas, reqs);
           if (job.level === 'bad') hard++;
-          if (!job.known) unknown++;
           const button = row.querySelector('[class*="commitButtonSection"] button');
           if (/^Inquire/i.test(button?.getAttribute('aria-label') || button?.textContent || '')) unpreserved++;
-          const extra = job.notes.length ? ' \u00b7 ' + job.notes[0] : '';
-          setBadge(row, q(row, 'titleSection') || head, job.level, job.text + extra, job.notes.join('\n'));
+          const key = name + '|' + scenario;
+          setBadge(row, q(row, 'titleSection') || head, job.level, job.label, job.detail.join(' '));
+          const badge = row.querySelector('.cca-badge');
+          if (badge && badge.dataset.key !== key) badge.dataset.key = key;
+          if (this.selected === key) pinned = { name, scenario, job };
         }
         if (!jobs) { setBar('arson', 'No arson jobs listed.'); return; }
-        const parts = ['<b>' + jobs + '</b> jobs. F = flammability, R = rurality, both 1 to 5.'];
-        if (hard) parts.push('<b>' + hard + '</b> need Thermite or Magnesium to hit their damage target.');
-        if (unpreserved) parts.push('<b>' + unpreserved + '</b> not yet inquired: Inquire costs no nerve and keeps a job past midnight.');
-        if (unknown) parts.push(unknown + ' with no location data yet.');
-        parts.push('Hover a badge for requirement notes.');
+
+        if (pinned) {
+          setBar('arson', '<b>' + pinned.name + '</b> (' + pinned.scenario + ')<br>' +
+            pinned.job.detail.map(d => '• ' + d).join('<br>') +
+            '<br><i>Click the badge again to close.</i>');
+          return;
+        }
+        const parts = ['<b>' + jobs + '</b> arson jobs. Each badge says how hard the job is: <b>Easy</b>, <b>Partial</b>, <b>Tight</b>, <b>Careful</b> or <b>Hard</b>. ' +
+          '<b>Click a badge</b> for the full explanation and what to place.'];
+        if (hard) parts.push('<b>' + hard + '</b> will most likely fail without Thermite or Magnesium.');
+        if (unpreserved) parts.push('<b>' + unpreserved + '</b> still show Inquire: pressing it costs no nerve and stops the job vanishing at midnight.');
         setBar('arson', parts.join(' '));
       },
     },
@@ -653,6 +702,18 @@
     },
   };
 
+  // Clicking an Arson badge pins that job's explanation in the hint bar. Capture phase, so the
+  // game's own row handlers never see the click.
+  document.addEventListener('click', e => {
+    const badge = e.target.closest && e.target.closest('.cca-badge[data-key]');
+    if (!badge) return;
+    e.preventDefault(); e.stopPropagation();
+    const A = MODULES.arson;
+    A.selected = A.selected === badge.dataset.key ? null : badge.dataset.key;
+    tick();
+    if (A.selected) document.getElementById('cca-bar')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, true);
+
   /* =====================================================================
    * 5. ROUTER
    * ===================================================================== */
@@ -667,7 +728,7 @@
   let lastCrime = null, timer = null;
   function tick() {
     const crime = currentCrime();
-    if (crime !== lastCrime) { cleanup(); lastCrime = crime; }
+    if (crime !== lastCrime) { cleanup(); lastCrime = crime; MODULES.arson.selected = null; }
     const mod = crime && MODULES[crime];
     if (!mod || !isOn(crime)) return;
     try { mod.render(); } catch (e) { console.warn('[CCA]', crime, e); }
