@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.3.2
+// @version      0.3.3
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -343,6 +343,9 @@
       if (req.evidence) { tags.push('plant evidence'); detail.push('You must plant evidence before lighting it. The job names the item when you inquire, and you need one in your inventory.'); }
       if (req.accelerant) { tags.push(req.accelerant.toLowerCase() + ' fuel only'); detail.push('Only ' + req.accelerant.toLowerCase() + ' accelerants are allowed. Any other type fails the job.'); }
 
+      // Torn's own tooltip cuts long text, so the hover tip stays short and points at the click.
+      const tipEnd = 'Place ' + starters + ' liquid fuel' + (starters > 1 ? 's' : '') + ', then Ignite. Click the badge for the full explanation.';
+
       const need = req.total ? 100 : req.min;
       const hasNeed = need !== null && need !== undefined;
       const payLine = req.max !== null ? 'Pay scales with damage up to the ' + req.max + '% limit.'
@@ -352,8 +355,8 @@
       if (!code || code[0] === '0' || code[1] === '0') {
         detail.unshift('No burn data exists for this location yet, so the script cannot judge its difficulty.');
         detail.push(startLine, payLine);
-        return { known: false, level: 'ok', label: 'No data · try ' + starters + ' fuel' + (tags.length ? ' · ' + tags.join(', ') : ''),
-                 detail, req, starters, text: 'No data' };
+        const label0 = 'No data \u00b7 try ' + starters + ' fuel' + (tags.length ? ' \u00b7 ' + tags.join(', ') : '');
+        return { known: false, level: 'ok', label: label0, tip: label0 + '. ' + tipEnd, detail, req, starters, text: 'No data' };
       }
 
       const r = +code[0], f = +code[1];
@@ -390,7 +393,8 @@
       }
       if (tags.length) label += ' · ' + tags.join(', ');
       detail.push(startLine, payLine);
-      return { known: true, level, label, detail, req, starters, rurality: r, flammability: f, response, burn, cap, text: label };
+      const tip = label + '. Burns down in ' + secs(burn) + ', fire crew arrives in ' + secs(response) + '. ' + tipEnd;
+      return { known: true, level, label, tip, detail, req, starters, rurality: r, flammability: f, response, burn, cap, text: label };
     },
 
     /* ---------- Burglary ---------- */
@@ -658,7 +662,7 @@
           const button = row.querySelector('[class*="commitButtonSection"] button');
           if (/^Inquire/i.test(button?.getAttribute('aria-label') || button?.textContent || '')) unpreserved++;
           const key = name + '|' + scenario;
-          setBadge(row, q(row, 'titleSection') || head, job.level, job.label, job.detail.join(' '));
+          setBadge(row, q(row, 'titleSection') || head, job.level, job.label, job.tip);
           const badge = row.querySelector('.cca-badge');
           if (badge && badge.dataset.key !== key) badge.dataset.key = key;
           if (this.selected === key) pinned = { name, scenario, job };

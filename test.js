@@ -245,4 +245,16 @@ t('arson badges read in plain words', () => {
   }
 });
 
+t('arson hover tips stay short enough for the game tooltip', () => {
+  const reqSets = [[], ['X', 'Total destruction required'], ['X', 'More than 75% damage required'],
+    ['X', 'Accidental cause requested', 'Planted evidence requested'], ['X', 'High visibility requested', 'Total destruction required']];
+  let longest = 0;
+  for (const name of Object.keys(RULES.arson.locations)) for (const reqs of reqSets) for (const areas of [1, 5]) {
+    const tip = Logic.arsonJob(name, areas, reqs).tip;
+    assert.ok(tip && tip.length <= 260, name + ': ' + (tip && tip.length));
+    longest = Math.max(longest, tip.length);
+  }
+  console.log('    longest tip:', longest, 'characters');
+});
+
 console.log('\n' + n + ' tests passed');
