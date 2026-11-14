@@ -310,4 +310,28 @@ t('bootlegging plan', () => {
   assert.strictEqual(Logic.bootlegPlan(Object.fromEntries(RULES.bootlegging.genres.map(g => [g, 10000])), {}).honourDone, true);
 });
 
+t('hustling member parsing', () => {
+  const m = Logic.hustlingMember('Audience member 1 of 2, attention 7  suspicion 0  wealth 4 out of 12');
+  assert.deepStrictEqual(m, { attention: 7, suspicion: 0, wealth: 4 });
+  assert.deepStrictEqual(Logic.hustlingMember('Member 2 attention 11 suspicion 3 wealth 9'), { attention: 11, suspicion: 3, wealth: 9 });
+  assert.strictEqual(Logic.hustlingMember('No audience'), null);
+});
+
+t('hustling win/lose advice', () => {
+  const a = (m, f) => Logic.hustlingAdvice(m, f);
+  // No heart, low attention: build it by losing.
+  assert.strictEqual(a([{ attention: 11, suspicion: 0 }]).action, 'lose');
+  // No heart, attention up: cash in by winning.
+  assert.strictEqual(a([{ attention: 70, suspicion: 10 }]).action, 'win');
+  // High suspicion: win them out.
+  assert.strictEqual(a([{ attention: 80, suspicion: 65 }]).action, 'win');
+  // Heart present, attention not full: lose to build.
+  assert.strictEqual(a([{ attention: 40, suspicion: 0, heart: true }]).action, 'lose');
+  // Heart present, attention full: win once or twice.
+  assert.strictEqual(a([{ attention: 96, suspicion: 0, heart: true }]).action, 'win');
+  // Heart present holds out to higher suspicion than a plain member.
+  assert.strictEqual(a([{ attention: 90, suspicion: 65, heart: true }]).action, 'lose');
+  assert.strictEqual(a([]).action, null);
+});
+
 console.log('\n' + n + ' tests passed');

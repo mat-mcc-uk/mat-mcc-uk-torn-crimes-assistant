@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.4.0
+// @version      0.5.0
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -151,6 +151,17 @@
       // How fast each genre sells relative to the others.
       demand: { 'Action': 10, 'Fantasy': 7, 'Comedy': 7, 'Drama': 5.5, 'Thriller': 4, 'Horror': 3, 'Romance': 3, 'Sci-Fi': 2 },
       cinephile: 10000,   // sales of each genre for the Cinephile honour
+    },
+
+    hustling: {
+      games: { 'Cornhole': 7, 'Snail Racing': 9, 'Find the Lady': 11, 'Shell Game': 12 },
+      // Attention and suspicion read 0 to 100 (a percentage of each member's bar).
+      buildTo: 60,      // below this, build attention by losing
+      winDownTo: 40,    // win back down to about here
+      cashOutSuspicion: 60,   // once suspicion passes this, win them out
+      heartCashOut: 85,       // with a heart, keep going until suspicion is this high
+      snakeOil: 100000,       // one bet of this wins the Snake Oil honour
+      shillSkill: 60, pickpocketSkill: 80,
     },
 
     graffiti: {
@@ -437,6 +448,37 @@
       // With nothing in stock, favour genres still short for the honour, then the best sellers.
       const copyNext = allEmpty && short.length ? short[0].genre : cover[0].genre;
       return { short, copyNext, allEmpty, honourDone: short.length === 0 };
+    },
+
+    /* ---------- Hustling ---------- */
+
+    // label e.g. "Audience member 1 of 2, attention 7  suspicion 0  wealth 4 out of 12"
+    hustlingMember(label) {
+      if (!label) return null;
+      const n = re => { const m = re.exec(label); return m ? +m[1] : null; };
+      const att = n(/attention\s+(\d+)/i), sus = n(/suspicion\s+(\d+)/i), wealth = n(/wealth\s+(\d+)/i);
+      if (att === null) return null;
+      return { attention: att, suspicion: sus === null ? 0 : sus, wealth };
+    },
+
+    // members: parsed members. flags.heart: a member whose favourite is the game in play (betting phase only).
+    // Returns the next bet action for the live game and why.
+    hustlingAdvice(members, flags) {
+      const H = RULES.hustling;
+      flags = flags || {};
+      if (!members.length) return { action: null, text: 'Gather an audience to begin.' };
+      const heart = members.find(m => m.heart) || (flags.heartIndex != null ? members[flags.heartIndex] : null);
+      const hi = heart || members.reduce((a, b) => b.attention > a.attention ? b : a);
+      // Cash-out phase: suspicion high enough that attention is capped.
+      const cap = heart ? H.heartCashOut : H.cashOutSuspicion;
+      if (hi.suspicion >= cap) return { action: 'win', target: hi, text: 'Suspicion is high (' + hi.suspicion + '%). Win until they leave.' };
+      if (heart) {
+        if (heart.attention < 95) return { action: 'lose', target: heart, text: 'They love this game. Lose to build their attention (now ' + heart.attention + '%), then win once or twice.' };
+        return { action: 'win', target: heart, text: 'Attention is high (' + heart.attention + '%). Win once or twice, do not empty it, then top up with a loss.' };
+      }
+      const top = hi.attention;
+      if (top < H.buildTo) return { action: 'lose', target: hi, text: 'Attention is low (' + top + '%). Lose to build it above ' + H.buildTo + '% before cashing in.' };
+      return { action: 'win', target: hi, text: 'Attention is up (' + top + '%). Win down to about ' + H.winDownTo + '%, then lose to build it again.' };
     },
 
     /* ---------- Arson ---------- */
@@ -899,6 +941,59 @@
         setBar('graffiti', 'Badges name the spray colour the guide found best for cash and for reputation in each district. ' +
           (short ? '<b>' + short + '</b> district' + (short > 1 ? 's are' : ' is') + ' below 500 tags. ' : 'Every district is at 500 tags. ') +
           'The city cleans tags over time, fastest in the districts lower down the list.');
+      },
+    },
+
+    hustling: {
+      // Read a member from its element: the aria-label, with bar widths as a fallback.
+      member(el) {
+        const am = el.querySelector('[class*="audienceMember"]') || el;
+        const base = Logic.hustlingMember(am.getAttribute('aria-label')) || { attention: 0, suspicion: 0, wealth: null };
+        const width = sel => { const w = el.querySelector('[class*="' + sel + '"]')?.style.width; return w ? parseInt(w, 10) : null; };
+        const a = width('attention'), s = width('suspicion');
+        if (a !== null) base.attention = a;
+        if (s !== null) base.suspicion = s;
+        // Heart / favourite and betting status are shown by an icon class on the member.
+        const cls = [...am.querySelectorAll('*')].flatMap(x => (typeof x.className === 'string' ? x.className : '').split(/\s+/)).join(' ');
+        base.heart = /heart|favou?rite/i.test(cls);
+        base.betting = /\bbetting\b|hasBet|money/i.test(cls);
+        return base;
+      },
+
+      render() {
+        const H = RULES.hustling;
+        const aud = document.querySelector('.crime-root [class*="audienceSection"] [class*="audience"]');
+        const members = aud ? [...aud.children].map(el => this.member(el)).filter(Boolean) : [];
+        const skill = crimeSkill();
+
+        // Is a game being played (betting phase)? Look for win/lose buttons in a game row.
+        const winBtn = [...document.querySelectorAll('.crime-root button[aria-label]')].find(b => /win|attempt to win/i.test(b.getAttribute('aria-label')));
+        const loseBtn = [...document.querySelectorAll('.crime-root button[aria-label]')].find(b => /lose|attempt to lose/i.test(b.getAttribute('aria-label')));
+        const betting = !!(winBtn || loseBtn);
+
+        if (!members.length) {
+          setBar('hustling', 'No audience yet. Gather one (it leaves 1 to 3 minutes after your last action), demo a game, then hype until people bet. ' +
+            (skill != null && skill >= H.pickpocketSkill ? 'You can run a shill and a pickpocket to cut losses.' : skill != null && skill >= H.shillSkill ? 'You can run a shill to cut losses.' : ''));
+          setPicks(new Set());
+          return;
+        }
+
+        const advice = Logic.hustlingAdvice(members, {});
+        const summary = members.map((m, i) => '#' + (i + 1) + ' att ' + m.attention + '% sus ' + m.suspicion + '%' + (m.heart ? ' \u2665' : '')).join(' \u00b7 ');
+
+        const picks = new Set();
+        if (betting) {
+          const want = advice.action;
+          const btn = want === 'win' ? winBtn : loseBtn;
+          if (btn) picks.add(btn);
+          setBar('hustling', '<b>' + (want === 'win' ? 'WIN' : 'LOSE') + ' the next bet.</b> ' + advice.text + '<br>' + summary +
+            '<br>Keep an eye on the bet size for the $100,000 Snake Oil honour. The audience leaves soon after your last action.');
+        } else {
+          setBar('hustling', 'Audience of <b>' + members.length + '</b>: ' + summary + '.<br>' +
+            'Demo a game, then hype until someone bets. The advisor calls win or lose once betting starts. ' +
+            'Aim bets at the greenest (richest) members.');
+        }
+        setPicks(picks);
       },
     },
 

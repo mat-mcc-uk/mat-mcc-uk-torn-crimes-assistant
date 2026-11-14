@@ -23,6 +23,7 @@ Both will pick up new versions from the same link.
 | Forgery | Names the best project for your skill and flags steps that fail often |
 | Bootlegging | Which genre to copy next, and progress toward the Cinephile honour |
 | Graffiti | Best spray colour per district for cash and for reputation |
+| Hustling | Calls win or lose on the next bet from each member's attention and suspicion |
 
 Each crime has a "hide" switch in its hint bar. Run `CCA.reset()` in the console to bring every module back.
 
