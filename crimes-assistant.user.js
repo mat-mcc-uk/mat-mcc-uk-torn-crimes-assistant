@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.6.0
+// @version      0.6.1
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -648,6 +648,8 @@
                color: #dfe; font-size: 12px; line-height: 1.5; }
     #cca-bar b { color: #9f9; }
     #cca-bar .cca-off { float: right; cursor: pointer; opacity: .6; }
+    #cca-bar.cca-collapsed { opacity: .75; }
+    #cca-bar .cca-show { cursor: pointer; text-decoration: underline dotted; color: #9f9; }
     .cca-wrap { flex-wrap: wrap !important; align-content: center !important; }
     .cca-badge { flex-basis: 100%; width: fit-content; max-width: 100%; margin: 2px 0 0 0; padding: 1px 6px;
                  border-radius: 3px; font-size: 10px; font-weight: normal; white-space: nowrap;
@@ -700,7 +702,28 @@
       bar.dataset.html = full;
       bar.innerHTML = full;
       bar.querySelector('.cca-off').addEventListener('click', () => {
-        settings.enabled[moduleId] = false; saveSettings(); cleanup();
+        settings.enabled[moduleId] = false; saveSettings(); showCollapsed(moduleId);
+      });
+    }
+    bar.classList.remove('cca-collapsed');
+  }
+
+  // When a crime's hints are hidden, keep a minimal bar with a one-click restore link,
+  // so the only way back is not the console.
+  function showCollapsed(moduleId) {
+    document.querySelectorAll('.cca-badge').forEach(b => b.remove());
+    document.querySelectorAll('.cca-graffiti').forEach(b => b.remove());
+    document.querySelectorAll('.cca-pick').forEach(b => b.classList.remove('cca-pick'));
+    const root = document.querySelector('.crime-root');
+    if (!root) { document.getElementById('cca-bar')?.remove(); return; }
+    let bar = document.getElementById('cca-bar');
+    if (!bar) { bar = document.createElement('div'); bar.id = 'cca-bar'; root.parentNode.insertBefore(bar, root); }
+    if (bar.dataset.html !== 'collapsed') {
+      bar.dataset.html = 'collapsed';
+      bar.classList.add('cca-collapsed');
+      bar.innerHTML = '<span class="cca-show" title="Show the Crimes Assistant hints again">Show Crimes Assistant hints</span>';
+      bar.querySelector('.cca-show').addEventListener('click', () => {
+        delete settings.enabled[moduleId]; saveSettings(); bar.dataset.html = ''; tick();
       });
     }
   }
@@ -1114,7 +1137,8 @@
     const crime = currentCrime();
     if (crime !== lastCrime) { cleanup(); lastCrime = crime; MODULES.arson.selected = null; }
     const mod = crime && MODULES[crime];
-    if (!mod || !isOn(crime)) return;
+    if (!mod) return;
+    if (!isOn(crime)) { showCollapsed(crime); return; }
     try { mod.render(); } catch (e) { console.warn('[CCA]', crime, e); }
   }
 
