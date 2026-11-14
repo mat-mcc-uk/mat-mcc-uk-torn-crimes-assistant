@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.5.0
+// @version      0.5.1
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -630,6 +630,12 @@
                  border-radius: 3px; font-size: 10px; font-weight: normal; white-space: nowrap;
                  overflow: hidden; text-overflow: ellipsis; position: relative; z-index: 3; pointer-events: auto; }
     .cca-badge[data-key] { cursor: pointer; text-decoration: underline dotted; }
+    /* Graffiti rows are only 50px tall with hidden overflow, so a wrapped badge clips.
+       This one floats in the empty band between the name and the reputation icon. */
+    .cca-graffiti { position: absolute; top: 50%; transform: translateY(-50%); right: 118px;
+                    max-width: 190px; font-size: 11px; padding: 1px 7px; border-radius: 3px;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                    pointer-events: none; z-index: 4; }
     .cca-pick { outline: 2px solid #7f7 !important; outline-offset: 2px; border-radius: 50%; }
     .cca-good { background: #24572a; color: #cfc; }
     .cca-ok   { background: #5a5320; color: #ffc; }
@@ -694,6 +700,7 @@
     document.getElementById('cca-bar')?.remove();
     document.querySelectorAll('.cca-badge').forEach(b => b.remove());
     document.querySelectorAll('.cca-pick').forEach(b => b.classList.remove('cca-pick'));
+    document.querySelectorAll('.cca-graffiti').forEach(b => b.remove());
   }
 
   /* =====================================================================
@@ -935,65 +942,21 @@
           const tags = parseInt((q(row, 'tagsCount')?.textContent || '').replace(/,/g, ''), 10);
           const left = isNaN(tags) ? 0 : Math.max(0, G.maxTags - tags);
           if (left) short++;
-          setBadge(row, titleEl, left ? 'ok' : 'good', 'Cash: ' + d.cash + ' \u00b7 reputation: ' + d.rep + (left ? ' \u00b7 ' + left + ' tags to 5 stars' : ''),
-            'Colour advice comes from small samples in the guide. The paint mask matters more for cash than the colour.');
+          // Float a short badge in the gap; clipping a wrapped line is the bug we are fixing.
+          titleEl.style.position = 'relative';
+          let badge = titleEl.querySelector('.cca-graffiti');
+          if (!badge) { badge = document.createElement('span'); badge.className = 'cca-graffiti'; titleEl.appendChild(badge); }
+          const level = left ? 'ok' : 'good';
+          const cls = 'cca-graffiti cca-' + level;
+          if (badge.className !== cls) badge.className = cls;
+          const text = 'Cash ' + d.cash + ' · Rep ' + d.rep;
+          if (badge.textContent !== text) badge.textContent = text;
+          const tip = text + (left ? ' · ' + left + ' tags to 5 stars' : ' · at 5 stars') + '. Colour data is from small samples; the paint mask matters more for cash.';
+          if (badge.title !== tip) badge.title = tip;
         }
-        setBar('graffiti', 'Badges name the spray colour the guide found best for cash and for reputation in each district. ' +
-          (short ? '<b>' + short + '</b> district' + (short > 1 ? 's are' : ' is') + ' below 500 tags. ' : 'Every district is at 500 tags. ') +
-          'The city cleans tags over time, fastest in the districts lower down the list.');
-      },
-    },
-
-    hustling: {
-      // Read a member from its element: the aria-label, with bar widths as a fallback.
-      member(el) {
-        const am = el.querySelector('[class*="audienceMember"]') || el;
-        const base = Logic.hustlingMember(am.getAttribute('aria-label')) || { attention: 0, suspicion: 0, wealth: null };
-        const width = sel => { const w = el.querySelector('[class*="' + sel + '"]')?.style.width; return w ? parseInt(w, 10) : null; };
-        const a = width('attention'), s = width('suspicion');
-        if (a !== null) base.attention = a;
-        if (s !== null) base.suspicion = s;
-        // Heart / favourite and betting status are shown by an icon class on the member.
-        const cls = [...am.querySelectorAll('*')].flatMap(x => (typeof x.className === 'string' ? x.className : '').split(/\s+/)).join(' ');
-        base.heart = /heart|favou?rite/i.test(cls);
-        base.betting = /\bbetting\b|hasBet|money/i.test(cls);
-        return base;
-      },
-
-      render() {
-        const H = RULES.hustling;
-        const aud = document.querySelector('.crime-root [class*="audienceSection"] [class*="audience"]');
-        const members = aud ? [...aud.children].map(el => this.member(el)).filter(Boolean) : [];
-        const skill = crimeSkill();
-
-        // Is a game being played (betting phase)? Look for win/lose buttons in a game row.
-        const winBtn = [...document.querySelectorAll('.crime-root button[aria-label]')].find(b => /win|attempt to win/i.test(b.getAttribute('aria-label')));
-        const loseBtn = [...document.querySelectorAll('.crime-root button[aria-label]')].find(b => /lose|attempt to lose/i.test(b.getAttribute('aria-label')));
-        const betting = !!(winBtn || loseBtn);
-
-        if (!members.length) {
-          setBar('hustling', 'No audience yet. Gather one (it leaves 1 to 3 minutes after your last action), demo a game, then hype until people bet. ' +
-            (skill != null && skill >= H.pickpocketSkill ? 'You can run a shill and a pickpocket to cut losses.' : skill != null && skill >= H.shillSkill ? 'You can run a shill to cut losses.' : ''));
-          setPicks(new Set());
-          return;
-        }
-
-        const advice = Logic.hustlingAdvice(members, {});
-        const summary = members.map((m, i) => '#' + (i + 1) + ' att ' + m.attention + '% sus ' + m.suspicion + '%' + (m.heart ? ' \u2665' : '')).join(' \u00b7 ');
-
-        const picks = new Set();
-        if (betting) {
-          const want = advice.action;
-          const btn = want === 'win' ? winBtn : loseBtn;
-          if (btn) picks.add(btn);
-          setBar('hustling', '<b>' + (want === 'win' ? 'WIN' : 'LOSE') + ' the next bet.</b> ' + advice.text + '<br>' + summary +
-            '<br>Keep an eye on the bet size for the $100,000 Snake Oil honour. The audience leaves soon after your last action.');
-        } else {
-          setBar('hustling', 'Audience of <b>' + members.length + '</b>: ' + summary + '.<br>' +
-            'Demo a game, then hype until someone bets. The advisor calls win or lose once betting starts. ' +
-            'Aim bets at the greenest (richest) members.');
-        }
-        setPicks(picks);
+        setBar('graffiti', 'Each district shows the spray colour the guide found best for cash and for reputation. ' +
+          (short ? '<b>' + short + '</b> district' + (short > 1 ? 's are' : ' is') + ' below 500 tags (5 stars). ' : 'Every district is at 5 stars. ') +
+          'The city cleans tags over time, fastest in the districts lower down the list. Hover a badge for tags remaining.');
       },
     },
 
