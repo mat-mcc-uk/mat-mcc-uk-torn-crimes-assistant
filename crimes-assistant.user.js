@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.5.1
+// @version      0.6.0
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -576,6 +576,29 @@
       return { known: true, level, label, tip, detail, req, starters, rurality: r, flammability: f, response, burn, cap, text: label };
     },
 
+    // Live fire state, read from a burning job's row.
+    // s = {intensity:'yellow'|'orange'|'red', rising, falling, momentum:int, areas:int,
+    //      responder:0-5, arrived:bool, damage:int, max:int|null, total:bool}
+    arsonFire(s) {
+      const warn = [];
+      const red = s.intensity === 'red';
+      if (red) warn.push('Red intensity: do not stoke or dampen, it is very likely to crit.');
+      if (!red && s.momentum >= 3) warn.push('Momentum is high (' + s.momentum + '): wait for it to fall before stoking, or you may ignite the fuel on yourself.');
+      if (s.arrived) warn.push('Responders are here: the fire is being put out. Magnesium slows that.');
+      else if (s.responder >= 4) warn.push('Responders almost here (' + s.responder + ' of 5): high jail risk if you stoke or dampen now.');
+      if (s.areas === 1) warn.push('Single-area fire: dampening it tends to crit. Stoke or let it burn instead.');
+      if (s.max != null && s.damage >= s.max - 3) warn.push('Damage is near the ' + s.max + '% cap (' + s.damage + '%): stop stoking.');
+      const safeToStoke = !red && s.momentum < 3 && !s.arrived && s.responder < 4;
+      const safeToDampen = !red && s.areas > 1 && !s.arrived && s.responder < 4;
+      // One-line verdict for the badge.
+      let verdict;
+      if (red) verdict = 'Wait: red intensity';
+      else if (s.momentum >= 3) verdict = 'Wait for momentum to fall';
+      else if (s.arrived || s.responder >= 4) verdict = 'Responders here: leave it';
+      else verdict = 'Safe to act · ' + s.intensity + (s.falling ? ' falling' : s.rising ? ' rising' : '');
+      return { warnings: warn, safeToStoke, safeToDampen, red, verdict };
+    },
+
     /* ---------- Burglary ---------- */
 
     burglaryTarget(title) {
@@ -963,8 +986,29 @@
     arson: {
       selected: null,   // "Location|Scenario" of the job whose detail is pinned in the bar
 
+      // Read a burning job's fire state. Returns null if the job is not alight.
+      readFire(row, req) {
+        const fm = row.querySelector('[class*="fireMeter"]');
+        const label = fm ? (fm.getAttribute('aria-label') || '') : '';
+        if (!fm || /\boff\b/i.test(label)) return null;
+        const intensity = (/(yellow|orange|red)/i.exec(label) || [, ''])[1].toLowerCase();
+        if (!intensity) return null;
+        const flameCls = [...(row.querySelector('[class*="flame"]')?.classList || [])].join(' ');
+        const mo = /momentum(\d+)/.exec(flameCls);
+        const areas = parseInt((/slots(\d+)/.exec(fm.className) || [, '1'])[1], 10) || 1;
+        const rs = row.querySelector('[class*="responderStatus"]')?.getAttribute('aria-label') || '';
+        const rm = /speed (\d+) of 5/i.exec(rs);
+        const damage = parseInt((row.querySelector('[class*="percentInFront"]')?.textContent || '0').replace(/[^\d]/g, ''), 10) || 0;
+        return {
+          intensity, rising: /rising/i.test(label), falling: /falling/i.test(label),
+          momentum: mo ? +mo[1] : 0, areas,
+          responder: rm ? +rm[1] : 0, arrived: /arriv/i.test(rs),
+          damage, max: req ? req.max : null, total: req ? req.total : false,
+        };
+      },
+
       render() {
-        let jobs = 0, hard = 0, unpreserved = 0, pinned = null;
+        let jobs = 0, hard = 0, unpreserved = 0, pinned = null, burning = null;
         for (const row of rows()) {
           const head = q(row, 'titleAndScenario');
           if (!head) continue;
@@ -976,21 +1020,39 @@
           const areas = parseInt(row.querySelector('[class*="fireMeter"]')?.getAttribute('aria-label') || '1', 10) || 1;
           const reqs = [...row.querySelectorAll('[class*="requestIcon"][aria-label]')].map(e => e.getAttribute('aria-label'));
           const job = Logic.arsonJob(name, areas, reqs);
+
+          const fire = this.readFire(row, job.req);
+          if (fire) {
+            const coach = Logic.arsonFire(fire);
+            if (!burning) burning = { name, scenario, fire, coach };
+            setBadge(row, q(row, 'titleSection') || head, coach.red || coach.warnings.length ? (coach.safeToStoke ? 'ok' : 'bad') : 'good',
+              'Burning · ' + fire.damage + '% · ' + coach.verdict, coach.warnings.join('\n') || 'No warnings.');
+            continue;
+          }
+
           if (job.level === 'bad') hard++;
           const button = row.querySelector('[class*="commitButtonSection"] button');
           if (/^Inquire/i.test(button?.getAttribute('aria-label') || button?.textContent || '')) unpreserved++;
-          const key = name + '|' + scenario;
           setBadge(row, q(row, 'titleSection') || head, job.level, job.label, job.tip);
           const badge = row.querySelector('.cca-badge');
-          if (badge && badge.dataset.key !== key) badge.dataset.key = key;
-          if (this.selected === key) pinned = { name, scenario, job };
+          if (badge && badge.dataset.key !== name + '|' + scenario) badge.dataset.key = name + '|' + scenario;
+          if (this.selected === name + '|' + scenario) pinned = { name, scenario, job };
         }
         if (!jobs) { setBar('arson', 'No arson jobs listed.'); return; }
 
+        if (burning) {
+          const f = burning.fire, c = burning.coach;
+          const resp = f.arrived ? 'responders on scene' : 'responders ' + f.responder + ' of 5';
+          const head = '<b>' + burning.name + '</b> burning: ' + f.damage + '% damage, ' + f.intensity +
+            (f.falling ? ' falling' : f.rising ? ' rising' : '') + ', momentum ' + f.momentum + ', ' + resp + '.';
+          const body = c.warnings.length ? '<br>' + c.warnings.map(w => '• ' + w).join('<br>')
+            : '<br>Safe to stoke or dampen now.';
+          setBar('arson', head + body);
+          return;
+        }
         if (pinned) {
           setBar('arson', '<b>' + pinned.name + '</b> (' + pinned.scenario + ')<br>' +
-            pinned.job.detail.map(d => '• ' + d).join('<br>') +
-            '<br><i>Click the badge again to close.</i>');
+            pinned.job.detail.map(d => '• ' + d).join('<br>') + '<br><i>Click the badge again to close.</i>');
           return;
         }
         const parts = ['<b>' + jobs + '</b> arson jobs. Each badge says how hard the job is: <b>Easy</b>, <b>Partial</b>, <b>Tight</b>, <b>Careful</b> or <b>Hard</b>. ' +

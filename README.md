@@ -15,7 +15,7 @@ Both will pick up new versions from the same link.
 | Crime | What you see |
 |---|---|
 | Scamming | Outlines the response to press, with fail and reward chances for each option, planned three moves ahead |
-| Arson | Flammability, rurality, burn time against responder time, and a starter count on every job |
+| Arson | Job cards, plus live warnings while a fire burns (intensity, momentum, responders) |
 | Burglary | "Case first", "Case once more" or "Burgle now" per target, from its confidence and status |
 | Card Skimming | Recover advice per skimmer, sale value, distance to the next price tier, honour progress |
 | Disposal | Outlines the safest method for each job and lists the items today's jobs need |

@@ -334,4 +334,30 @@ t('hustling win/lose advice', () => {
   assert.strictEqual(a([]).action, null);
 });
 
+t('arson live fire coaching', () => {
+  const f = Logic.arsonFire;
+  // Captured state: yellow, momentum 3, responder 3, 1 area. Momentum too high to stoke.
+  const live = f({ intensity: 'yellow', rising: false, falling: false, momentum: 3, areas: 1, responder: 3, arrived: false, damage: 49, max: null, total: false });
+  assert.strictEqual(live.safeToStoke, false);
+  assert.ok(live.warnings.some(w => /momentum/i.test(w)));
+  assert.ok(live.warnings.some(w => /single-area/i.test(w)));
+  // Red intensity: never act.
+  const red = f({ intensity: 'red', momentum: 0, areas: 2, responder: 1, arrived: false, damage: 80, max: null });
+  assert.strictEqual(red.safeToStoke, false);
+  assert.strictEqual(red.safeToDampen, false);
+  assert.ok(/red/i.test(red.verdict));
+  // Calm multi-area fire, momentum settled, responders far: safe to act.
+  const calm = f({ intensity: 'yellow', falling: true, momentum: 1, areas: 3, responder: 1, arrived: false, damage: 40, max: null });
+  assert.strictEqual(calm.safeToStoke, true);
+  assert.strictEqual(calm.safeToDampen, true);
+  assert.ok(/safe/i.test(calm.verdict.toLowerCase()));
+  // Responders arrived: leave it.
+  const done = f({ intensity: 'orange', momentum: 2, areas: 2, responder: 5, arrived: true, damage: 90, max: null });
+  assert.strictEqual(done.safeToStoke, false);
+  assert.ok(done.warnings.some(w => /responders are here/i.test(w)));
+  // Max-damage cap approaching.
+  const capped = f({ intensity: 'yellow', momentum: 1, areas: 2, responder: 2, arrived: false, damage: 48, max: 50 });
+  assert.ok(capped.warnings.some(w => /cap/i.test(w)));
+});
+
 console.log('\n' + n + ' tests passed');
