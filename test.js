@@ -360,4 +360,18 @@ t('arson live fire coaching', () => {
   assert.ok(capped.warnings.some(w => /cap/i.test(w)));
 });
 
+t('card skimming reads a skimmer from row text (desktop and PDA)', () => {
+  // Desktop-ish and PDA-ish concatenations of one Gas Station skimmer row.
+  assert.strictEqual(Logic.isSkimmerRow('Gas Station28 days, 4 hours240Active'), true);
+  assert.strictEqual(Logic.isSkimmerRow('Post Office1 day, 22 hours34 Active RECOVER 4'), true);
+  assert.strictEqual(Logic.isSkimmerRow('Install SkimmerGas Station6145'), false);
+  assert.strictEqual(Logic.isSkimmerRow('Sell Card Details656 Card Details'), false);
+  assert.strictEqual(Logic.skimmerDetails('Gas Station28 days, 4 hours240Active'), 240);
+  assert.strictEqual(Logic.skimmerDetails('Post Office1 day, 22 hours34 Active RECOVER 4'), 34);
+  assert.strictEqual(Logic.skimmerDetails('College Campus3 days656 Active'), 656);
+  // Fallback when the status word is missing: age stripped, first number wins.
+  assert.strictEqual(Logic.skimmerDetails('Gas Station20 days, 3 hours 182 pending'), 182);
+  assert.strictEqual(Logic.parseAgeHours('Gas Station28 days, 4 hours240Active'), 676);
+});
+
 console.log('\n' + n + ' tests passed');

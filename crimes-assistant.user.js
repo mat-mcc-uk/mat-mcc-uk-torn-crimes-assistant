@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Crimes 2.0 Assistant
 // @namespace    https://github.com/mat-mcc-uk
-// @version      0.6.1
+// @version      0.6.2
 // @description  Advice-only hints on the Crimes 2.0 page. Reads the page, never clicks.
 // @author       mat-mcc-uk
 // @match        https://www.torn.com/page.php?sid=crimes*
@@ -221,6 +221,20 @@
       if (h) hours += +h[1];
       if (m) hours += +m[1] / 60;
       return hours;
+    },
+
+    // Pull a skimmer's detail count from its row text, independent of desktop vs mobile markup.
+    skimmerDetails(text) {
+      let m = /([\d,]{1,7})\s*(?:Active|Inactive|Found|Removed|Discovered)/i.exec(text);
+      if (m) return +m[1].replace(/,/g, '');
+      // Fallback: drop the age, then take the first standalone number (the detail count).
+      const noAge = text.replace(/\d+\s*(?:days?|hours?|mins?|minutes?)/gi, ' ');
+      m = /(\d[\d,]{0,6})/.exec(noAge);
+      return m ? +m[1].replace(/,/g, '') : 0;
+    },
+
+    isSkimmerRow(text) {
+      return /\d+\s*(?:days?|hours?|mins?|minutes?)/i.test(text) && /Active|Inactive|Found|Removed|Discovered/i.test(text);
     },
 
     saleTier(count) {
@@ -760,17 +774,17 @@
         let stored = 0, onSkimmers = 0, count = 0, honourReady = 0, perHour = 0;
 
         for (const row of rows()) {
-          const title = (q(row, 'flexGrow')?.textContent || '').trim();
-          if (/Sell Card Details/i.test(row.textContent)) {
-            const m = /([\d,]+)\s*Card Details/i.exec(row.textContent.replace(/Sell Card Details/i, ''));
+          const rowText = row.textContent || '';
+          const title = ownText(q(row, 'flexGrow')) || (q(row, 'flexGrow')?.textContent || '').trim();
+          if (/Sell Card Details/i.test(rowText)) {
+            const m = /([\d,]+)\s*Card Details/i.exec(rowText.replace(/Sell Card Details/i, ''));
             if (m) stored = +m[1].replace(/,/g, '');
             continue;
           }
-          const timeEl = q(row, 'timeSection'), statusEl = q(row, 'statusSection');
-          if (!timeEl || !statusEl) continue;   // the Install row
-          const details = +((/([\d,]+)/.exec(statusEl.textContent) || [0, '0'])[1].replace(/,/g, ''));
-          const hours = Logic.parseAgeHours(timeEl.textContent);
-          // startsWith, because our own badge sits inside the title element after the first render
+          // A skimmer row has an age and a status; the Install row has neither. Works on desktop and PDA.
+          if (!Logic.isSkimmerRow(rowText)) continue;
+          const details = Logic.skimmerDetails(rowText);
+          const hours = Logic.parseAgeHours(rowText);
           const loc = R.locations[Object.keys(R.locations).find(k => title.startsWith(k))];
           count++; onSkimmers += details;
           if (details >= R.honourDetails) honourReady++;
